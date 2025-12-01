@@ -1,0 +1,35 @@
+ifconfig
+ping
+traceroute
+netstat
+nslookup
+route
+dig
+arp
+host
+hostname
+ethtool
+
+ip a
+ip link
+ip route
+route -n
+tracepath
+ss -tulnp
+ip -s link
+sar -n DEV 1 5
+ip link set eth0 up
+ip link set eth0 down
+ip addr add 192.168.1.10/24 dev eth0
+ip addr del 192.168.1.10/24 dev eth0
+ip route add 192.168.2.0/24 via 192.168.1.1
+nmcli dev wifi list
+nmcli dev wifi connect "SSID" password "PASSWORD"
+ufw status
+ufw allow 22
+ufw enable
+firewall-cmd --state
+firewall-cmd --list-all
+iftop
+nload
+tcpdump -i eth0
