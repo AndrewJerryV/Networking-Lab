@@ -1,5 +1,5 @@
+// Floyd-Warshall algorithm
 #include <stdio.h>
-
 #define INF 999
 
 int main() {
