@@ -1,58 +1,52 @@
 #include <stdio.h>
-#include <stdlib.h>
 #include <unistd.h>
 #include <arpa/inet.h>
-#include <fcntl.h>
-#include <time.h>
 
 int main() {
-    int sfd, cfd, win, tot, base = 0, next = 0, ack;
-    struct sockaddr_in addr = {AF_INET, htons(8081), {INADDR_ANY}};
-    time_t timer = time(NULL);
+    int s = socket(AF_INET, SOCK_DGRAM, 0), n;
+    struct sockaddr_in a = {AF_INET, htons(8080), 0};
+    bind(s, (struct sockaddr*)&a, sizeof(a));
+    printf("GBN Server ready...\n");
+    socklen_t addrsize = sizeof(a);
 
-    sfd = socket(AF_INET, SOCK_STREAM, 0);
-    int opt = 1; setsockopt(sfd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
-    bind(sfd, (struct sockaddr *)&addr, sizeof(addr));
-    listen(sfd, 1);
-    
-    printf("[SERVER] Waiting...\n");
-    cfd = accept(sfd, NULL, NULL);
-    printf("Total Packets: "); scanf("%d", &tot);
-    printf("Window Size: ");   scanf("%d", &win);
-    send(cfd, &tot, sizeof(tot), 0);
+    int expectedframe = 1;
 
-    fcntl(cfd, F_SETFL, O_NONBLOCK);
+    while (1) {
+        int receivedframe;
+        n = recvfrom(s, &receivedframe, sizeof(int), 0, (struct sockaddr*) &a, &addrsize);
+        
+        // Simulate dropping frames 2 and 5 exactly like the SR code
+        static int dropped_2 = 0;
+        static int dropped_5 = 0;
 
-    while (base < tot) {
-        // A. SEND NEW PACKETS (Fill Window)
-        while (next < base + win && next < tot) {
-            printf("[SERVER] Sending Frame: %d\n", next);
-            send(cfd, &next, sizeof(next), 0);
-            if (base == next) timer = time(NULL);
-            next++;
-            usleep(10000);
+        if (receivedframe == 2 && !dropped_2) {
+            dropped_2 = 1; 
+            continue; 
         }
-        // B. CHECK FOR ACKS (Non-blocking)
-        if (recv(cfd, &ack, sizeof(ack), 0) > 0) {
-            if (ack >= base) {
-                printf("[SERVER] ACK %d received. Sliding window.\n", ack);
-                base = ack + 1;
-                timer = time(NULL);
+        if (receivedframe == 5 && !dropped_5) {
+            dropped_5 = 1;
+            continue;
+        }
+
+        if (receivedframe == expectedframe) {
+            // In-order frame received perfectly
+            printf("Frame %d received, sending ACK for %d\n", receivedframe, receivedframe);
+            sendto(s, &receivedframe, sizeof(int), 0, (struct sockaddr*) &a, addrsize);
+            expectedframe++;
+        } 
+        else if (receivedframe > expectedframe) {
+            // Out-of-order frame! GBN has no buffer, so we discard it.
+            int last_good_ack = expectedframe - 1;
+            printf("Received out-of-order Frame %d. Expected %d. Discarding...\n", receivedframe, expectedframe);
+            
+            // Re-acknowledge the highest correctly received in-order frame (Cumulative ACK)
+            if (last_good_ack > 0) {
+                printf("  -> Re-sending cumulative ACK for %d\n", last_good_ack);
+                sendto(s, &last_good_ack, sizeof(int), 0, (struct sockaddr*) &a, addrsize);
             }
         }
-        // C. HANDLE TIMEOUT
-        if (time(NULL) - timer > 2) {
-            printf("[SERVER] Timeout! Resending Window from %d\n", base);
-            for (int i = base; i < next; i++) {
-                printf("[SERVER] Re-sending: %d\n", i);
-                send(cfd, &i, sizeof(i), 0);
-            }
-            timer = time(NULL);
-        }
-        usleep(10000);
     }
-
-    printf("[SERVER] Done.\n");
-    close(cfd); close(sfd);
+    
+    close(s);
     return 0;
 }

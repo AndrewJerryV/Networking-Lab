@@ -1,40 +1,58 @@
 #include <stdio.h>
-#include <stdlib.h>
 #include <unistd.h>
 #include <arpa/inet.h>
-#include <time.h>
+#include <sys/time.h>
+#include <stdlib.h>
 
 int main() {
-    int sock, val, tot, expected = 0;
-    struct sockaddr_in addr = {AF_INET, htons(8081), {INADDR_ANY}};
+    int s = socket(AF_INET, SOCK_DGRAM, 0), n;
+    struct sockaddr_in a = {AF_INET, htons(8080), 0};
+    socklen_t addrsize = sizeof(a);
+    inet_pton(AF_INET, "127.0.0.1", &a.sin_addr);
     
-    sock = socket(AF_INET, SOCK_STREAM, 0);
-    inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
-    connect(sock, (struct sockaddr *)&addr, sizeof(addr));
+    // Set 2-second timeout for recvfrom
+    struct timeval tv;
+    tv.tv_sec = 2;
+    tv.tv_usec = 0;
+    setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tv, sizeof(tv));
 
-    recv(sock, &tot, sizeof(tot), 0);
-    printf("[CLIENT] Connected. Expecting %d packets.\n", tot);
-    srand(time(0)); 
+    int totalframes, windowsize;
+    printf("Enter no. of frames: ");
+    scanf("%d", &totalframes);
+    printf("Enter window size: ");
+    scanf("%d", &windowsize);
+    
+    int base = 1, next_to_send = 1;
 
-    while (expected < tot) {
-        if (recv(sock, &val, sizeof(val), 0) <= 0) break;
-
-        if (rand() % 100 < 30) {
-            printf("[CLIENT] Frame %d -> SIMULATED DROP\n", val);
-            continue;
+    while (base <= totalframes) {
+        
+        // 1. Send frames up to the window limit
+        while (next_to_send < base + windowsize && next_to_send <= totalframes) {
+            printf("Frame %d sent\n", next_to_send);
+            sendto(s, &next_to_send, sizeof(int), 0, (struct sockaddr*)&a, addrsize);
+            next_to_send++;
+            usleep(100000); // Short delay
         }
 
-        if (val == expected) {
-            printf("[CLIENT] Frame %d -> ACCEPTED. Sending ACK %d\n", val, val);
-            send(sock, &val, sizeof(val), 0);
-            expected++;
+        // 2. Wait for ACK
+        int ack;
+        n = recvfrom(s, &ack, sizeof(int), 0, (struct sockaddr*)&a, &addrsize);
+        
+        if (n < 0) {
+            // TIMEOUT: Go-Back-N triggers here!
+            printf("--> Timeout for Frame %d! Going back to frame %d...\n", base, base);
+            // Reset next_to_send back to base so the while loop re-sends the whole window
+            next_to_send = base; 
         } else {
-            printf("[CLIENT] Frame %d -> OUT OF ORDER (Expected %d). Sending ACK %d\n", val, expected, expected - 1);
-            int last_ack = expected - 1;
-            if (last_ack >= 0) send(sock, &last_ack, sizeof(last_ack), 0);
+            // GBN uses Cumulative ACKs
+            if (ack >= base) {
+                printf("ACK received for frame %d\n", ack);
+                // Slide the window forward to the next unacknowledged frame
+                base = ack + 1; 
+            }
         }
     }
-    printf("[CLIENT] Done.\n");
-    close(sock);
+
+    close(s);
     return 0;
 }

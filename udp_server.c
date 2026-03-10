@@ -1,5 +1,3 @@
-// gcc -o udp_server udp_server.c
-// ./udp_server
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
